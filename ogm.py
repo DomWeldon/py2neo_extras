@@ -93,7 +93,7 @@ class SingleRelated(RelatedExtra):
             OPTIONAL MATCH (n1){0}(n2:{1})
             FOREACH (i IN CASE r WHEN NULL THEN [] ELSE [1] END | DELETE r)
             WITH n1, n2
-            CREATE (n1)-[{0}]->(n2)
+            CREATE (n1){0}(n2)
             RETURN n2
             '''.format(
                 self.relationship_pattern,
