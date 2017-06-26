@@ -1,11 +1,26 @@
 from abc import ABCMeta
 from collections import deque
+from six import with_metaclass
 
 from py2neo.database import cypher_escape
 from py2neo.ogm import Related, OUTGOING, UNDIRECTED, INCOMING
 from py2neo.types import remote
 
-class RelatedExtra(metaclass = ABCMeta):
+def ogm_wrapper(instance, graph_object):
+    """Handy function to wrap the result or partial result of a query in an OGM GraphObject"""
+    if not isinstance(graph_object, type):
+        module_name, _, class_name = graph_object.rpartition(".")
+        if not module_name:
+            module_name = instance.__class__.__module__
+        module = __import__(module_name, fromlist=".")
+        graph_object = getattr(module, class_name)
+
+    def wrap(x):
+        return graph_object.wrap(x)
+
+    return wrap
+
+class RelatedExtra(with_metaclass(ABCMeta)):
 
     direction = UNDIRECTED
 
@@ -17,7 +32,7 @@ class RelatedExtra(metaclass = ABCMeta):
             module = __import__(module_name, fromlist=".")
             self.related_class = getattr(module, class_name)
 
-    def __init__(self, related_class, relationship_type=None):
+    def __init__(self, related_class, relationship_type = None):
         self.related_class = related_class
         self.relationship_type = relationship_type
 
@@ -65,7 +80,7 @@ class SingleRelated(RelatedExtra):
                 self.related_class.__primarylabel__
             )
 
-    def __call__(self):
+    def __call__(self, refresh = False):
         '''
         Used to access the node to which the hook class refers.
 
@@ -74,7 +89,10 @@ class SingleRelated(RelatedExtra):
         __set__ to change the relationship. By calling this hook object,
         it is clearer that the graph is being queried.
 
+        :param refresh: boolean whether to pull the node from the db afresh
         '''
+        if (refresh == True):
+            self.related_node = self.fetch_node()
         try:
             # node is stored as a local attribute
             return self.related_node
@@ -214,7 +232,10 @@ class RelatedInChain(RelatedExtra, FluentSkipLimit):
         :param relationship_class: class of object in the chain
         :param relationship_type: edge label connecting the objects
         '''
-        super().__init__(relationship_class, relationship_type)
+        try:
+            super().__init__(relationship_class, relationship_type)
+        except TypeError:
+            super(RelatedInChain, self).__init__(relationship_class, relationship_type)
 
 
     def __repr__(self):
@@ -227,6 +248,7 @@ class RelatedInChain(RelatedExtra, FluentSkipLimit):
         )
 
     def __len__(self):
+        e = remote(self.source_instance.__ogm__.node)
         q = '''
         MATCH (s:{0}){1}(t:{2}) WHERE id(s) = {{ s_id }}
         WITH t {3} {4}
@@ -238,7 +260,7 @@ class RelatedInChain(RelatedExtra, FluentSkipLimit):
             self.skip_clause(),
             self.limit_clause()
         )
-        return graph.run(q, {
+        return e.graph.run(q, {
             's_id': remote(self.source_instance.__ogm__.node)._id
             }).evaluate()
 
@@ -252,7 +274,7 @@ class RelatedInChain(RelatedExtra, FluentSkipLimit):
 
     # for python 2...
     def next(self):
-        return self.next()
+        return self.__next__()
 
     def __next__(self):
         try:
