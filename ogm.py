@@ -2,8 +2,8 @@ from abc import ABCMeta
 from collections import deque
 from six import with_metaclass
 
-from py2neo.database import cypher_escape
-from py2neo.ogm import Related, OUTGOING, UNDIRECTED, INCOMING
+from py2neo.database import cypher_escape, NodeSelector
+from py2neo.ogm import GraphObjectSelector, INCOMING, OUTGOING, Related, UNDIRECTED
 from py2neo.types import remote
 
 def ogm_wrapper(instance, graph_object):
@@ -15,10 +15,7 @@ def ogm_wrapper(instance, graph_object):
         module = __import__(module_name, fromlist=".")
         graph_object = getattr(module, class_name)
 
-    def wrap(x):
-        return graph_object.wrap(x)
-
-    return wrap
+    return graph_object.wrap
 
 class RelatedExtra(with_metaclass(ABCMeta)):
 
@@ -37,14 +34,13 @@ class RelatedExtra(with_metaclass(ABCMeta)):
         self.relationship_type = relationship_type
 
     def __get__(self, instance, owner):
-        '''
-        GraphObject.wrap() calls getattr() on all properties of a GraphObject
+        """GraphObject.wrap() calls getattr() on all properties of a GraphObject
         instance. This gives us the ability to store the instance connected
         to the graph.
 
         This is a hook class, so it returns itself rather than the object(s) it
         refers to.
-        '''
+        """
         self.source_instance = instance
         self.resolve_related_class(instance)
 
@@ -62,12 +58,9 @@ class RelatedExtra(with_metaclass(ABCMeta)):
 RelatedExtra.register(Related)
 
 class SingleRelated(RelatedExtra):
-    '''
-    Like RelatedTo, this class acts as a hook to another OGM node in the graph.
+    """Like RelatedTo, this class acts as a hook to another OGM node in the graph.
     From a given OGM instance, you can access another node with a given label,
-    related to it by an edge with a given label
-
-    '''
+    related to it by an edge with a given label"""
 
     @property
     def relationship_pattern(self):
@@ -81,8 +74,7 @@ class SingleRelated(RelatedExtra):
             )
 
     def __call__(self, refresh = False):
-        '''
-        Used to access the node to which the hook class refers.
+        """Used to access the node to which the hook class refers.
 
         If the object desired was returned by __get__(), pulling the parent object
         from graph would result in two queries, and we wouldn't be able to use
@@ -90,7 +82,7 @@ class SingleRelated(RelatedExtra):
         it is clearer that the graph is being queried.
 
         :param refresh: boolean whether to pull the node from the db afresh
-        '''
+        """
         if (refresh == True):
             self.related_node = self.fetch_node()
         try:
@@ -101,9 +93,7 @@ class SingleRelated(RelatedExtra):
             return self.related_node
 
     def __set__(self, instance, value):
-        '''
-        Change the relationship
-        '''
+        """Change the relationship"""
         assert isinstance(value, self.related_class)
         q = '''
             MATCH (n1) WHERE id(n1) = {{ n1_id }}
@@ -112,8 +102,7 @@ class SingleRelated(RelatedExtra):
             FOREACH (i IN CASE r WHEN NULL THEN [] ELSE [1] END | DELETE r)
             WITH n1, n2
             CREATE (n1){0}(n2)
-            RETURN n2
-            '''.format(
+            RETURN n2'''.format(
                 self.relationship_pattern,
                 self.related_class.__primarylabel__
             )
@@ -132,15 +121,12 @@ class SingleRelated(RelatedExtra):
         return 1 if bool(self) else 0
 
     def fetch_node(self):
-        '''
-        Explicitly request the node from the graph.
-        '''
+        """Explicitly request the node from the graph."""
         e = remote(self.source_instance.__ogm__.node)
         q = '''
             MATCH (n1) WHERE id(n1) = {{ n_id }}
             MATCH (n1){0}(n2:{1})
-            RETURN n2
-            '''.format(
+            RETURN n2'''.format(
                 self.relationship_pattern,
                 self.related_class.__primarylabel__
             )
@@ -160,9 +146,7 @@ class SingleRelatedFrom(SingleRelated):
 
 
 class FluentSkipLimit():
-    '''
-    Fluently add skip and limit features to the query.
-    '''
+    """Fluently add skip and limit features to the query."""
 
     @property
     def _skip(self):
@@ -176,11 +160,10 @@ class FluentSkipLimit():
         self.__skip = value
 
     def skip(self, skip):
-        '''
-        fluently set a skip on the number of nodes to retrieve
+        """fluently set a skip on the number of nodes to retrieve
 
         :param skip: the starting point in the chain
-        '''
+        """
         assert isinstance(skip, int)
         self._skip = skip
 
@@ -202,11 +185,10 @@ class FluentSkipLimit():
         self.__limit = value
 
     def limit(self, limit):
-        '''
-        fluently set a limit on the number of nodes to retrieve
+        """fluently set a limit on the number of nodes to retrieve
 
         :param skip: the total number of nodes to return from the starting point
-        '''
+        """
         assert isinstance(limit, int)
         self._limit = limit
 
@@ -227,11 +209,11 @@ class RelatedInChain(RelatedExtra, FluentSkipLimit):
         return self._relationship_pattern(name = '', path_length = '*')
 
     def __init__(self, relationship_class, relationship_type):
-        ''' Iterate over a set of related objects in a chain.
+        """Iterate over a set of related objects in a chain.
 
         :param relationship_class: class of object in the chain
         :param relationship_type: edge label connecting the objects
-        '''
+        """
         try:
             super().__init__(relationship_class, relationship_type)
         except TypeError:
@@ -250,10 +232,9 @@ class RelatedInChain(RelatedExtra, FluentSkipLimit):
     def __len__(self):
         e = remote(self.source_instance.__ogm__.node)
         q = '''
-        MATCH (s:{0}){1}(t:{2}) WHERE id(s) = {{ s_id }}
-        WITH t {3} {4}
-        RETURN COUNT(t) as total
-        '''.format(
+            MATCH (s:{0}){1}(t:{2}) WHERE id(s) = {{ s_id }}
+            WITH t {3} {4}
+            RETURN COUNT(t) as total'''.format(
             self.source_instance.__primarylabel__,
             self.relationship_pattern,
             self.related_class.__primarylabel__,
@@ -286,9 +267,8 @@ class RelatedInChain(RelatedExtra, FluentSkipLimit):
             self.queue = deque()
             e = remote(self.source_instance.__ogm__.node)
             q = '''
-            MATCH (s:{0}){1}(t:{2}) WHERE id(s) = {{ s_id }}
-            RETURN t {3} {4}
-            '''.format(
+                MATCH (s:{0}){1}(t:{2}) WHERE id(s) = {{ s_id }}
+                RETURN t {3} {4}'''.format(
                 self.source_instance.__primarylabel__,
                 self.relationship_pattern,
                 self.related_class.__primarylabel__,
@@ -314,3 +294,25 @@ class RelatedToInChain(RelatedInChain):
 
 class RelatedFromInChain(RelatedInChain):
     direction = INCOMING
+
+
+class ByNodeIdGraphObjectSelector(GraphObjectSelector):
+    """Class to allow you to select n by id(n), when cls.__primarykey__ !+ __id__"""
+    def __init__(self, object_class, graph):
+        try:
+            super().__init__(object_class, graph)
+        except TypeError:
+            super(ByNodeIdGraphObjectSelector, self).__init__(object_class, graph)
+
+    def select_by_node_id(self, node_id):
+        cls = self._object_class
+        properties = {}
+        if node_id is not None:
+            properties['__id__'] = node_id
+        return NodeSelector.select(self, cls.__primarylabel__, **properties)
+
+class ByNodeIdSelectableGraphObject():
+    @classmethod
+    def select_by_node_id(cls, graph, node_id):
+
+        return ByNodeIdGraphObjectSelector(cls, graph).select_by_node_id(node_id)
