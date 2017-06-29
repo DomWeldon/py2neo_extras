@@ -3,7 +3,7 @@ from collections import deque
 from six import with_metaclass
 
 from py2neo.database import cypher_escape, NodeSelector
-from py2neo.ogm import GraphObjectSelector, INCOMING, OUTGOING, Related, UNDIRECTED
+from py2neo.ogm import GraphObject, GraphObjectSelector, INCOMING, OUTGOING, Related, UNDIRECTED
 from py2neo.types import remote
 
 def ogm_wrapper(instance, graph_object):
